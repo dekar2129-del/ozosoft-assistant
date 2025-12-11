@@ -1,0 +1,7 @@
+{
+  "name": "OZOSOFT Assistant",
+  "description": "A real-time voice assistant tailored for corporate identity and specific company knowledge using Gemini Live API.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

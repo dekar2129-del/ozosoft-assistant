@@ -1,0 +1,11 @@
+Options -MultiViews
+RewriteEngine On
+
+# Proxy ALL API requests to Node.js backend on port 3000
+RewriteCond %{REQUEST_URI} ^/api/
+RewriteRule ^api/(.*)$ http://127.0.0.1:3000/api/$1 [P,L]
+
+# Serve React app for all other routes (including /admin)
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.html [L]
