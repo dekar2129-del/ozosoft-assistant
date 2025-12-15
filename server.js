@@ -16,12 +16,17 @@ const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://datauser:Ozosoft12%40@
 
 // Connection options for better reliability
 const mongoOptions = {
-  serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 30s
-  socketTimeoutMS: 45000, // Close sockets after 45s of inactivity
+  serverSelectionTimeoutMS: 10000, // Timeout after 10s for initial connection
+  socketTimeoutMS: 0, // Disable socket timeout (never timeout)
+  connectTimeoutMS: 10000, // 10s to establish initial connection
   maxPoolSize: 10, // Maintain up to 10 socket connections
-  minPoolSize: 2, // Maintain at least 2 socket connections
+  minPoolSize: 5, // Keep at least 5 connections alive
+  maxIdleTimeMS: 300000, // Close idle connections after 5 minutes
   retryWrites: true, // Automatically retry write operations
   retryReads: true, // Automatically retry read operations
+  heartbeatFrequencyMS: 10000, // Check server health every 10s
+  keepAlive: true, // Enable TCP keep-alive
+  keepAliveInitialDelay: 300000, // Start keep-alive after 5 minutes
 };
 
 // Connect to MongoDB with retry logic
@@ -58,10 +63,26 @@ mongoose.connection.on('connected', () => {
 
 mongoose.connection.on('error', (err) => {
   console.error('❌ Mongoose connection error:', err);
+  // Don't exit, connection will be retried automatically
 });
 
 mongoose.connection.on('disconnected', () => {
   console.log('🔌 Mongoose disconnected from MongoDB');
+  console.log('⏳ Attempting to reconnect...');
+  // Mongoose will automatically try to reconnect
+});
+
+mongoose.connection.on('reconnected', () => {
+  console.log('✅ Mongoose reconnected to MongoDB');
+});
+
+mongoose.connection.on('reconnectFailed', () => {
+  console.error('❌ Mongoose reconnection failed');
+  // Try to reconnect manually after a delay
+  setTimeout(() => {
+    console.log('🔄 Manual reconnection attempt...');
+    connectDB();
+  }, 5000);
 });
 
 // Graceful shutdown
@@ -109,25 +130,68 @@ const Conversation = mongoose.model('Conversation', ConversationSchema);
 
 // Middleware to check MongoDB connection
 const checkDBConnection = (req, res, next) => {
-  if (mongoose.connection.readyState !== 1) {
+  const readyState = mongoose.connection.readyState;
+  
+  // readyState: 0 = disconnected, 1 = connected, 2 = connecting, 3 = disconnecting
+  if (readyState === 0) {
+    console.log('⚠️  Request blocked: MongoDB disconnected. Triggering reconnection...');
+    connectDB(); // Trigger reconnection
     return res.status(503).json({ 
       error: 'Database temporarily unavailable',
-      message: 'Please try again in a moment' 
+      message: 'Connection lost. Please try again in a moment.',
+      readyState: 'disconnected'
     });
   }
+  
+  if (readyState === 2) {
+    console.log('⏳ Request blocked: MongoDB connecting...');
+    return res.status(503).json({ 
+      error: 'Database connecting',
+      message: 'Please wait, reconnecting to database...',
+      readyState: 'connecting'
+    });
+  }
+  
+  if (readyState === 3) {
+    console.log('⚠️  Request blocked: MongoDB disconnecting...');
+    return res.status(503).json({ 
+      error: 'Database disconnecting',
+      message: 'Please try again in a moment.',
+      readyState: 'disconnecting'
+    });
+  }
+  
+  // readyState === 1 (connected)
   next();
 };
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
+  const readyStates = {
+    0: 'disconnected',
+    1: 'connected',
+    2: 'connecting',
+    3: 'disconnecting'
+  };
+  
   const healthStatus = {
     status: 'running',
     timestamp: new Date().toISOString(),
-    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-    uptime: process.uptime()
+    mongodb: {
+      state: readyStates[mongoose.connection.readyState],
+      readyState: mongoose.connection.readyState,
+      host: mongoose.connection.host || 'unknown',
+      name: mongoose.connection.name || 'unknown'
+    },
+    uptime: Math.floor(process.uptime()),
+    memory: {
+      rss: Math.floor(process.memoryUsage().rss / 1024 / 1024) + 'MB',
+      heapUsed: Math.floor(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB'
+    }
   };
   
-  res.json(healthStatus);
+  const httpStatus = mongoose.connection.readyState === 1 ? 200 : 503;
+  res.status(httpStatus).json(healthStatus);
 });
 
 // GET /api/config - Retrieve company settings
