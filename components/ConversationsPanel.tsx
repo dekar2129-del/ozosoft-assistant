@@ -23,6 +23,7 @@ export const ConversationsPanel: React.FC = () => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
 
   useEffect(() => {
@@ -32,12 +33,38 @@ export const ConversationsPanel: React.FC = () => {
   const fetchConversations = async () => {
     try {
       setLoading(true);
-      const response = await fetch('https://ai.marketbizz.in/api/conversations');
+      setError(null);
+      
+      console.log('Fetching conversations from /api/conversations');
+      const response = await fetch('/api/conversations', {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
+      
+      console.log('Response status:', response.status);
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+      }
+      
       const data = await response.json();
+      console.log('Conversations data:', data);
+      
+      if (!data.conversations || !Array.isArray(data.conversations)) {
+        throw new Error('Invalid response format: conversations array not found');
+      }
+      
       setConversations(data.conversations);
-      setTotal(data.total);
+      setTotal(data.total || data.conversations.length);
     } catch (error) {
       console.error('Failed to fetch conversations:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      setError(errorMessage);
+      setConversations([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
@@ -48,12 +75,15 @@ export const ConversationsPanel: React.FC = () => {
     
     try {
       console.log('Deleting conversation:', sessionId);
-      const response = await fetch(`https://ai.marketbizz.in/api/conversations/${sessionId}`, {
-        method: 'DELETE'
+      const response = await fetch(`/api/conversations/${sessionId}`, {
+        method: 'DELETE',
+        headers: {
+          'Accept': 'application/json',
+        },
       });
       
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({ error: 'Unknown error' }));
         console.error('Delete failed:', error);
         alert(`Failed to delete: ${error.error || 'Unknown error'}`);
         return;
@@ -68,7 +98,8 @@ export const ConversationsPanel: React.FC = () => {
       }
     } catch (error) {
       console.error('Failed to delete conversation:', error);
-      alert('Failed to delete conversation. Check console for details.');
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      alert(`Failed to delete conversation: ${errorMessage}`);
     }
   };
 
@@ -89,8 +120,30 @@ export const ConversationsPanel: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <i className="fas fa-spinner fa-spin text-3xl text-sky-500"></i>
+      <div className="bg-slate-800 rounded-xl p-6 border border-slate-700">
+        <div className="flex flex-col items-center justify-center h-64">
+          <i className="fas fa-spinner fa-spin text-4xl text-sky-500 mb-4"></i>
+          <p className="text-slate-400">Loading conversations...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-slate-800 rounded-xl p-6 border border-slate-700">
+        <div className="flex flex-col items-center justify-center h-64">
+          <i className="fas fa-exclamation-triangle text-4xl text-red-500 mb-4"></i>
+          <p className="text-slate-300 mb-2">Failed to load conversations</p>
+          <p className="text-slate-500 text-sm mb-4">{error}</p>
+          <button
+            onClick={fetchConversations}
+            className="px-4 py-2 bg-sky-600 hover:bg-sky-500 rounded-lg text-sm transition-colors flex items-center gap-2"
+          >
+            <i className="fas fa-redo"></i>
+            Retry
+          </button>
+        </div>
       </div>
     );
   }
