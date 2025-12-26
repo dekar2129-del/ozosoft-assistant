@@ -1,12 +1,17 @@
 {
   "name": "ozosoft-assistant",
-  "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "AI Voice Assistant with Gemini Live API - OZOSOFT",
   "type": "module",
+  "private": true,
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "server": "node server.js",
+    "dev:server": "node server.js",
+    "start": "npm run dev",
+    "lint": "echo 'Linting not configured'"
   },
   "dependencies": {
     "@google/genai": "^1.30.0",
@@ -23,5 +28,14 @@
     "@vitejs/plugin-react": "^5.0.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
-  }
+  },
+  "keywords": [
+    "ai",
+    "voice-assistant",
+    "gemini",
+    "react",
+    "mongodb"
+  ],
+  "author": "OZOSOFT",
+  "license": "MIT"
 }

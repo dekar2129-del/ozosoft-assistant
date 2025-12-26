@@ -35,7 +35,6 @@ export const ConversationsPanel: React.FC = () => {
       setLoading(true);
       setError(null);
       
-      console.log('Fetching conversations from /api/conversations');
       const response = await fetch('/api/conversations', {
         method: 'GET',
         headers: {
@@ -43,24 +42,58 @@ export const ConversationsPanel: React.FC = () => {
         },
       });
       
-      console.log('Response status:', response.status);
+      const data = await response.json().catch(() => ({}));
       
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+      // Handle MongoDB disconnected case (503 status) - this is expected when DB is down
+      if (response.status === 503) {
+        const isDBDisconnected = data.readyState === 'disconnected' || 
+                                 data.readyState === 'connecting' ||
+                                 data.error === 'Database temporarily unavailable' ||
+                                 data.error === 'Database not connected' ||
+                                 data.error === 'Database connecting';
+        
+        // Use conversations from response if available (empty array)
+        const conversations = data.conversations && Array.isArray(data.conversations) 
+          ? data.conversations 
+          : [];
+        const total = data.total || 0;
+        
+        setConversations(conversations);
+        setTotal(total);
+        
+        if (isDBDisconnected) {
+          // Set a user-friendly error message, but don't log as error
+          const message = data.readyState === 'connecting' 
+            ? 'Database is connecting. Please wait...'
+            : 'Database connection unavailable. The server is trying to reconnect. Please try again in a moment.';
+          setError(message);
+        } else {
+          setError(data.message || 'Service temporarily unavailable');
+        }
+        
+        setLoading(false);
+        return; // Exit early - don't throw error for expected 503
       }
       
-      const data = await response.json();
-      console.log('Conversations data:', data);
+      // Handle other non-OK responses
+      if (!response.ok) {
+        // Only throw for unexpected errors (not 503 which we handled above)
+        throw new Error(data.message || data.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
       
+      // Success - parse and set data
       if (!data.conversations || !Array.isArray(data.conversations)) {
         throw new Error('Invalid response format: conversations array not found');
       }
       
       setConversations(data.conversations);
       setTotal(data.total || data.conversations.length);
+      setError(null); // Clear any previous errors on success
     } catch (error) {
-      console.error('Failed to fetch conversations:', error);
+      // Only log unexpected errors (not 503 which is handled above)
+      if (!(error instanceof Error && error.message.includes('503'))) {
+        console.warn('Failed to fetch conversations:', error);
+      }
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       setError(errorMessage);
       setConversations([]);
@@ -129,20 +162,37 @@ export const ConversationsPanel: React.FC = () => {
     );
   }
 
-  if (error) {
+  // Show error banner if there's an error, but still show content if we have conversations
+  const showErrorBanner = error && conversations.length === 0;
+  
+  if (showErrorBanner && loading === false) {
     return (
       <div className="bg-slate-800 rounded-xl p-6 border border-slate-700">
         <div className="flex flex-col items-center justify-center h-64">
-          <i className="fas fa-exclamation-triangle text-4xl text-red-500 mb-4"></i>
-          <p className="text-slate-300 mb-2">Failed to load conversations</p>
-          <p className="text-slate-500 text-sm mb-4">{error}</p>
-          <button
-            onClick={fetchConversations}
-            className="px-4 py-2 bg-sky-600 hover:bg-sky-500 rounded-lg text-sm transition-colors flex items-center gap-2"
-          >
-            <i className="fas fa-redo"></i>
-            Retry
-          </button>
+          <i className="fas fa-exclamation-triangle text-4xl text-yellow-500 mb-4"></i>
+          <p className="text-slate-300 mb-2 font-semibold">Database Connection Issue</p>
+          <p className="text-slate-400 text-sm mb-4 text-center max-w-md">{error}</p>
+          <div className="flex gap-3">
+            <button
+              onClick={fetchConversations}
+              className="px-4 py-2 bg-sky-600 hover:bg-sky-500 rounded-lg text-sm transition-colors flex items-center gap-2"
+            >
+              <i className="fas fa-redo"></i>
+              Retry
+            </button>
+            <button
+              onClick={() => {
+                // Try to trigger server reconnection
+                fetch('/api/reconnect', { method: 'POST' }).then(() => {
+                  setTimeout(fetchConversations, 2000);
+                });
+              }}
+              className="px-4 py-2 bg-green-600 hover:bg-green-500 rounded-lg text-sm transition-colors flex items-center gap-2"
+            >
+              <i className="fas fa-plug"></i>
+              Reconnect DB
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -150,6 +200,22 @@ export const ConversationsPanel: React.FC = () => {
 
   return (
     <div className="bg-slate-800 rounded-xl p-6 border border-slate-700">
+      {/* Error Banner (if error but we have conversations to show) */}
+      {error && conversations.length > 0 && (
+        <div className="mb-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <i className="fas fa-exclamation-triangle text-yellow-500"></i>
+            <p className="text-yellow-200 text-sm">{error}</p>
+          </div>
+          <button
+            onClick={fetchConversations}
+            className="px-3 py-1 bg-yellow-600 hover:bg-yellow-500 rounded text-xs transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+      
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold flex items-center gap-2">
           <i className="fas fa-comments text-sky-500"></i>

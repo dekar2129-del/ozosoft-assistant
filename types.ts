@@ -14,6 +14,7 @@ export interface TranscriptionItem {
 
 export interface CompanyConfig {
   name: string;
+  assistantName?: string;
   industry: string;
   tone: string;
   knowledgeBase: string;
